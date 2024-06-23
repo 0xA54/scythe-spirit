@@ -1,0 +1,7 @@
+[package]
+name = "spirit1-embedded-example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+spirit1-rs = { path = "../spirit1-rs" }
