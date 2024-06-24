@@ -1,16 +1,24 @@
-// #![no_std]
+#![no_std]
+#![no_main]
 #![feature(generic_const_exprs)]
 
 use spirit1_rs::prelude::*;
+use embedded_hal::spi::{Operation, SpiDevice};
+use defmt::*;
+use embassy_executor::Spawner;
+use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_time::Timer;
+use {defmt_rtt as _, panic_probe as _};
 
 #[derive(Debug)]
-struct SpiritSpiHal {
+struct SpiritSpiHal<SPI> {
     base_frequency: u32,
     band_select: BandSelect,
-    xtal_frequency: u32
+    xtal_frequency: u32,
+    spi: SPI
 }
 
-impl Spirit1Hal for SpiritSpiHal {
+impl<SPI> Spirit1Hal for SpiritSpiHal<SPI> where SPI: SpiDevice {
     fn get_base_frequency(&self) -> u32 {
         self.base_frequency
     }
@@ -24,33 +32,44 @@ impl Spirit1Hal for SpiritSpiHal {
     }
 
     fn read_register<R>(&mut self) -> R where R: Register<WORD> + ReadableRegister<WORD>, [(); R::LENGTH]: Sized, {
-        R::reset_value()
+        // TODO: Should return result not unwrap
+        let mut buf = [0; R::LENGTH];
+        self.spi.transaction(&mut [
+            Operation::Write(&[R::ADDRESS]),
+            Operation::Read(&mut buf)
+        ]).map_err(|_| RadioError::Spi).unwrap();
+        
+        R::from_bytes(&buf).unwrap()
     }
 
     fn write_raw(&mut self, base: u8, value: &mut [u8]) -> RadioResult<()> {
-        Err(RadioError::NotImplemented)
+        self.spi.transaction(&mut [
+            Operation::Write(&[base]),
+            Operation::Write(value)
+        ]).map_err(|_| RadioError::Spi)
     }
 
     fn write_register<R>(&mut self, value: R) -> RadioResult<()> where R: WriteableRegister<WORD>, [(); R::LENGTH]: Sized {
-        Err(RadioError::NotImplemented)
+        self.spi.write(&value.into_bytes()?).map_err(|_| RadioError::Spi)
     }
 }
 
-impl SpiritSpiHal {
-    fn new(base_frequency: u32, xtal_frequency: u32) -> Option<Self> {
+impl<SPI> SpiritSpiHal<SPI> where SPI: SpiDevice {
+    fn new(spi: SPI, base_frequency: u32, xtal_frequency: u32) -> Option<Self> {
         let band_select = BandSelect::from_hz(base_frequency)?;
 
         Some(Self {
             base_frequency,
             band_select,
-            xtal_frequency
+            xtal_frequency,
+            spi
         })
     }
 }
 
-fn main() {
-    let spirit1 = SpiritSpiHal::new(433_400_000, 50_000_000).unwrap();
-
-    println!("{:?}", spirit1);
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    // let spirit1 = SpiritSpiHal::new(433_400_000, 50_000_000).unwrap();
+    // println!("{:?}", spirit1);
 }
 
