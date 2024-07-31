@@ -3,8 +3,10 @@
 #![feature(generic_const_exprs)]
 
 use core::cell::RefCell;
-
+use cortex_m::peripheral::SCB;
+use cortex_m_rt::*;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice as SpiDeviceBlocking;
 use embassy_executor::Spawner;
 use embassy_stm32::{
@@ -20,7 +22,13 @@ use embedded_hal::spi::{Operation, SpiDevice};
 use spirit1_rs::prelude::*;
 use spirit1_rs::WORD;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
+// use panic_probe as _;
+use panic_halt as _;
+
+#[exception]
+unsafe fn HardFault(_frame: &ExceptionFrame) -> ! {
+    SCB::sys_reset() // <- you could do something other than reset
+}
 
 #[derive(Debug)]
 struct SpiritSpiHal<SPI> {
@@ -69,11 +77,12 @@ where
             .unwrap();
 
         let state = McState::from_bytes(&status).unwrap();
-        let r = R::from_bytes(&buf).unwrap();
+        let ret = R::from_bytes(&buf).unwrap();
         // trace!("read_register[{:x}; {}] {:x}", R::ADDRESS, R::LENGTH, buf);
-        trace!("READ@0x{:x}: {}", R::ADDRESS, r);
+        trace!("READ@0x{:x}: {}", R::ADDRESS, ret);
         trace!("State = {}", state.state);
-        r
+
+        ret
     }
 
     fn write_register<R>(&mut self, value: R) -> RadioResult<()>

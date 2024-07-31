@@ -1,25 +1,34 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
             "type": "probe-rs-debug",
             "request": "launch",
-            "name": "probe-rs",
+            "name": "Launch",
             "cwd": "${workspaceFolder}",
-            "connectUnderReset": true,
+            "runtimeExecutable": "probe-rs",
+            "runtimeArgs": [
+                "dap-server"
+            ],
             "chip": "STM32F070F6Px",
             "flashingConfig": {
                 "flashingEnabled": true,
-                "haltAfterReset": true
+                "haltAfterReset": false,
+                "formatOptions": {
+                    "binaryFormat": "elf"
+                }
             },
             "coreConfigs": [
                 {
-                    "programBinary": "./target/thumbv6m-none-eabi/debug/spirit1-embedded-example"
+                    "coreIndex": 0,
+                    "programBinary": "./target/thumbv6m-none-eabi/debug/spirit1-embedded-example",
                 }
-            ]
+            ],
+            "env": {
+                // If you set this variable, check the VSCode console log window for the location of the log file.
+                //   "RUST_LOG": "info"
+            },
+            "consoleLogLevel": "Console"
         }
     ]
 }
