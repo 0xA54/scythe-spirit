@@ -17,6 +17,7 @@ embassy-stm32 = { version = "0.1.0", features = [ "defmt", "stm32f070f6", "time-
 embassy-executor = { version = "0.5.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.3.1", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-8_000_000"] }
 embassy-sync = { version = "0.6.0", features = ["defmt"] }
+embassy-embedded-hal = { version = "0.1.0" }
 static_cell = "1.0"
 
 embedded-hal = "1.0.0"
@@ -27,6 +28,7 @@ embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "74739997
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35"}
 embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35"}
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35"}
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35"}
 
 # Cargo.toml
 [profile.dev]
