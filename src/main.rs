@@ -18,7 +18,7 @@ use embassy_sync::{
     blocking_mutex::{raw::NoopRawMutex, NoopMutex},
     mutex::Mutex,
 };
-use embassy_time::Timer;
+use embassy_time::{Delay, Duration, Timer};
 use embedded_hal::spi::{Operation, SpiDevice};
 use spirit1_rs::prelude::*;
 use static_cell::StaticCell;
@@ -38,6 +38,11 @@ impl<SPI> Spirit1HalBlocking for SpiritSpiHal<SPI>
 where
     SPI: SpiDevice,
 {
+    fn delay_ms(&self, ms: u32) {
+        trace!("delay {}", ms);
+        embassy_time::block_for(Duration::from_millis(ms as u64));
+    }
+
     fn get_base_frequency(&self) -> u32 {
         self.base_frequency
     }
@@ -52,7 +57,7 @@ where
 
     fn read_register<R>(&mut self) -> R
     where
-        R: Register<WORD> + ReadableRegister<WORD>,
+        R: Register<WORD> + ReadableRegister<WORD> + defmt::Format,
         [(); R::LENGTH]: Sized,
     {
         // TODO: Should return result not unwrap
@@ -67,26 +72,53 @@ where
             .map_err(|_| RadioError::Spi)
             .unwrap();
 
-        trace!("read_register[{:x}; {}] {:x}", R::ADDRESS, R::LENGTH, buf);
-        trace!("status: {:b}", status); // MC_STATE
-
-        R::from_bytes(&buf).unwrap()
-    }
-
-    fn write_raw(&mut self, base: u8, value: &mut [u8]) -> RadioResult<()> {
-        self.spi
-            .transaction(&mut [Operation::Write(&[0, base]), Operation::Write(value)])
-            .map_err(|_| RadioError::Spi)
+        let state = McState::from_bytes(&status).unwrap();
+        let r = R::from_bytes(&buf).unwrap();
+        // trace!("read_register[{:x}; {}] {:x}", R::ADDRESS, R::LENGTH, buf);
+        trace!("READ@0x{:x}: {}", R::ADDRESS, r);
+        trace!("State = {}", state.state);
+        r
     }
 
     fn write_register<R>(&mut self, value: R) -> RadioResult<()>
     where
-        R: WriteableRegister<WORD>,
+        R: WriteableRegister<WORD> + defmt::Format,
         [(); R::LENGTH]: Sized,
     {
-        self.spi
-            .write(&value.into_bytes()?)
-            .map_err(|_| RadioError::Spi)
+        trace!("WRITE@0x{:x}: {}", R::ADDRESS, value);
+        let mut status = [0; 2];
+
+        let ret = self
+            .spi
+            // .write(&value.into_bytes()?)
+            .transaction(&mut [
+                Operation::Transfer(&mut status, &[0, R::ADDRESS]),
+                Operation::Write(&value.into_bytes()?),
+            ])
+            .map_err(|_| RadioError::Spi);
+
+        let state = McState::from_bytes(&status).unwrap();
+        trace!("State = {}", state.state);
+
+        ret
+    }
+
+    fn write_raw(&mut self, base: u8, value: &mut [u8]) -> RadioResult<()> {
+        trace!("WRITE_RAW@0x{:x}: {}", base, value);
+        let mut status = [0; 2];
+
+        let ret = self
+            .spi
+            .transaction(&mut [
+                Operation::Transfer(&mut status, &[0, base]),
+                Operation::Write(value),
+            ])
+            .map_err(|_| RadioError::Spi);
+
+        let state = McState::from_bytes(&status).unwrap();
+        trace!("State = {}", state.state);
+
+        ret
     }
 }
 
@@ -141,20 +173,25 @@ async fn main(_spawner: Spawner) {
 
     let mut spirit1 = SpiritSpiHal::new(spirit_spi, 433_400_000, 50_000_000).unwrap();
     let info = spirit1.read_register::<DeviceInfo>();
-    info!("Part {:x}, Version {:x}", info.part_number, info.version);
+    info!("{:x}", info);
 
-    // info!("Trying to init...");
-    // if let Err(init_err) = spirit1.init(RadioInitOpts::default()) {
-    //     error!("Failed to initialize Spirit1");
-    //     loop {
-    //         relay.toggle();
-    //         Timer::after_secs(3).await;
-    //     }
-    // }
+    // let mc_state = spirit1.read_register::<McState>();
+    // info!("State: {}", mc_state.state);
+
+    info!("Trying to init...");
+    if let Err(init_err) = spirit1.init(RadioInitOpts::default()) {
+        error!("Failed to initialize Spirit1");
+        loop {
+            relay.toggle();
+            Timer::after_secs(3).await;
+        }
+    }
 
     info!("looping...");
     loop {
         relay.toggle();
         Timer::after_secs(3).await;
+
+        // Delay::
     }
 }
