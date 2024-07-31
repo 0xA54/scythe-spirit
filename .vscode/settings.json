@@ -1,4 +1,24 @@
 {
     "rust-analyzer.cargo.allTargets": false,
-    "rust-analyzer.cargo.target": "thumbv6m-none-eabi"
+    "rust-analyzer.cargo.target": "thumbv6m-none-eabi",
+    "workbench.colorCustomizations": {
+        "activityBar.activeBackground": "#d4cea4",
+        "activityBar.background": "#d4cea4",
+        "activityBar.foreground": "#15202b",
+        "activityBar.inactiveForeground": "#15202b99",
+        "activityBarBadge.background": "#48988e",
+        "activityBarBadge.foreground": "#e7e7e7",
+        "commandCenter.border": "#15202b99",
+        "sash.hoverBorder": "#d4cea4",
+        "statusBar.background": "#c3bb82",
+        "statusBar.foreground": "#15202b",
+        "statusBarItem.hoverBackground": "#b2a860",
+        "statusBarItem.remoteBackground": "#c3bb82",
+        "statusBarItem.remoteForeground": "#15202b",
+        "titleBar.activeBackground": "#c3bb82",
+        "titleBar.activeForeground": "#15202b",
+        "titleBar.inactiveBackground": "#c3bb8299",
+        "titleBar.inactiveForeground": "#15202b99"
+    },
+    "peacock.color": "#c3bb82"
 }
