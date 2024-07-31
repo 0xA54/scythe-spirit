@@ -3,19 +3,35 @@ name = "spirit1-embedded-example"
 version = "0.1.0"
 edition = "2021"
 
-[toolchain]
-channel = "nightly"
-
 [dependencies]
 cortex-m-rt = ">=0.6.15,<0.8"
-cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m = { version = "0.7.6", features = [
+    "inline-asm",
+    "critical-section-single-core",
+] }
 defmt = "0.3"
 defmt-rtt = "0.4"
 # panic-halt = "0.2.0"
 panic-probe = "0.3"
-embassy-stm32 = { version = "0.1.0", features = [ "defmt", "stm32f070f6", "time-driver-any", "exti", "unstable-pac"] }
-embassy-executor = { version = "0.5.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.3.1", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-8_000_000"] }
+embassy-stm32 = { version = "0.1.0", features = [
+    "defmt",
+    "stm32f070f6",
+    "time-driver-any",
+    "exti",
+    "unstable-pac",
+] }
+embassy-executor = { version = "0.5.0", features = [
+    "arch-cortex-m",
+    "executor-thread",
+    "executor-interrupt",
+    "defmt",
+    "integrated-timers",
+] }
+embassy-time = { version = "0.3.1", features = [
+    "defmt",
+    "defmt-timestamp-uptime",
+    "tick-hz-8_000_000",
+] }
 embassy-sync = { version = "0.6.0", features = ["defmt"] }
 embassy-embedded-hal = { version = "0.1.0" }
 static_cell = "1.0"
@@ -24,15 +40,15 @@ embedded-hal = "1.0.0"
 spirit1-rs = { path = "../spirit1-rs" }
 
 [patch.crates-io]
-embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35"}
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35"}
-embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35"}
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35"}
-embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35"}
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35" }
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "74739997bd70d3c23b5c58d25aa5c9ba4db55f35" }
 
 # Cargo.toml
 [profile.dev]
-debug = 2 # default is `true`; not needed if not already overridden
+debug = 2         # default is `true`; not needed if not already overridden
 codegen-units = 1
 lto = true
 opt-level = "z"

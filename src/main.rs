@@ -14,13 +14,11 @@ use embassy_stm32::{
     time::Hertz,
     Config,
 };
-use embassy_sync::{
-    blocking_mutex::{raw::NoopRawMutex, NoopMutex},
-    mutex::Mutex,
-};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_sync::blocking_mutex::NoopMutex;
+use embassy_time::{Duration, Timer};
 use embedded_hal::spi::{Operation, SpiDevice};
 use spirit1_rs::prelude::*;
+use spirit1_rs::WORD;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -32,8 +30,7 @@ struct SpiritSpiHal<SPI> {
     spi: SPI,
 }
 
-type WORD = u8;
-
+// TODO: Move this back into `spirit1-rs` with the embedded-hal
 impl<SPI> Spirit1HalBlocking for SpiritSpiHal<SPI>
 where
     SPI: SpiDevice,
@@ -65,8 +62,7 @@ where
         let mut status = [0; 2];
         self.spi
             .transaction(&mut [
-                Operation::Transfer(&mut status, &[1, R::ADDRESS]),
-                // Operation::Write(&[1, R::ADDRESS]),
+                Operation::Transfer(&mut status, &[spirit1_rs::READ, R::ADDRESS]),
                 Operation::Read(&mut buf),
             ])
             .map_err(|_| RadioError::Spi)
@@ -90,9 +86,8 @@ where
 
         let ret = self
             .spi
-            // .write(&value.into_bytes()?)
             .transaction(&mut [
-                Operation::Transfer(&mut status, &[0, R::ADDRESS]),
+                Operation::Transfer(&mut status, &[spirit1_rs::WRITE, R::ADDRESS]),
                 Operation::Write(&value.into_bytes()?),
             ])
             .map_err(|_| RadioError::Spi);
@@ -110,7 +105,7 @@ where
         let ret = self
             .spi
             .transaction(&mut [
-                Operation::Transfer(&mut status, &[0, base]),
+                Operation::Transfer(&mut status, &[spirit1_rs::WRITE, base]),
                 Operation::Write(value),
             ])
             .map_err(|_| RadioError::Spi);
@@ -140,19 +135,21 @@ where
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    // let spirit1 = SpiritSpiHal::new(433_400_000, 50_000_000).unwrap();
+    // Configure STM32
     let mut config = Config::default();
     config.rcc.hse = Some(Hse {
         freq: Hertz::mhz(8),
         mode: HseMode::Oscillator,
     });
-    let mut spi_config = spi::Config::default();
-    spi_config.frequency = Hertz::mhz(1);
-
     let p = embassy_stm32::init(config);
+
+    // Configure GPIO
     let mut relay = Output::new(p.PA3, Level::Low, Speed::Low);
     // SPIRIT_G0 = PA1
     // SPIRIT_G1 = PA0 (not connected)
+
+    let mut spi_config = spi::Config::default();
+    spi_config.frequency = Hertz::mhz(1);
 
     // async - have not implemented Spirit1HalAsync yet
     // static SPI_BUS: StaticCell<Mutex<NoopRawMutex, Spi<embassy_stm32::mode::Async>>> =
@@ -171,27 +168,28 @@ async fn main(_spawner: Spawner) {
     let spi_bus = SPI_BUS.init(spi_bus);
     let spirit_spi = SpiDeviceBlocking::new(spi_bus, spi_cs);
 
-    let mut spirit1 = SpiritSpiHal::new(spirit_spi, 433_400_000, 50_000_000).unwrap();
-    let info = spirit1.read_register::<DeviceInfo>();
+    // Configure radio
+    let mut radio = SpiritSpiHal::new(spirit_spi, 433_400_000, 50_000_000).unwrap();
+
+    // Perform a test read
+    let info = radio.read_register::<DeviceInfo>();
     info!("{:x}", info);
+    crate::assert_eq!(info.version, 0x30, "silicon version mismatch");
 
-    // let mc_state = spirit1.read_register::<McState>();
-    // info!("State: {}", mc_state.state);
-
-    info!("Trying to init...");
-    if let Err(init_err) = spirit1.init(RadioInitOpts::default()) {
-        error!("Failed to initialize Spirit1");
-        loop {
-            relay.toggle();
-            Timer::after_secs(3).await;
-        }
+    // Initialize radio
+    info!("Initializing radio...");
+    if let Err(err) = radio.init(RadioInitOpts {
+        xtal_offset_ppm: 50,
+        ..Default::default()
+    }) {
+        error!("Failed to initialize Spirit1: {}", err);
+        loop {} // really we should panic
     }
 
+    // dummy stuff
     info!("looping...");
     loop {
         relay.toggle();
         Timer::after_secs(3).await;
-
-        // Delay::
     }
 }
