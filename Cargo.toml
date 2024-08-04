@@ -12,7 +12,9 @@ cortex-m = { version = "0.7.6", features = [
 defmt = "0.3"
 defmt-rtt = "0.4"
 panic-halt = "0.2.0"
-# panic-probe = { version = "0.3", features = ["print-defmt"] } # print-defmt uses too much flash :(
+panic-probe = { version = "0.3", features = [
+    "print-defmt",
+] } # print-defmt uses too much flash :(
 # panic-probe = { version = "0.3" }
 embassy-stm32 = { version = "0.1.0", features = [
     "defmt",
@@ -45,16 +47,10 @@ embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "7
 
 # Cargo.toml
 [profile.dev]
-# debug = 2         # default is `true`; not needed if not already overridden
-# codegen-units = 1
-# lto = true
-# opt-level = "z"
-lto = true
-opt-level = "s"
-incremental = false
+debug = 2         # default is `true`; not needed if not already overridden
 codegen-units = 1
-# note: debug = true is okay - debuginfo isn't flashed to the device!
-debug = true
+lto = true
+opt-level = "z"
 
 [profile.release]
 debug = 1 # default is `false`; using `true` is also OK as symbols reside on the host, not the target

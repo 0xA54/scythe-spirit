@@ -5,7 +5,7 @@
 use core::cell::RefCell;
 use cortex_m::peripheral::SCB;
 use cortex_m_rt::*;
-use defmt::*;
+use defmt::{error, info, trace};
 use defmt_rtt as _;
 use embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice as SpiDeviceBlocking;
 use embassy_executor::Spawner;
@@ -22,29 +22,41 @@ use embedded_hal::spi::{Operation, SpiDevice};
 use spirit1_rs::prelude::*;
 use spirit1_rs::WORD;
 use static_cell::StaticCell;
-// use panic_probe as _;
-use panic_halt as _;
 
-#[exception]
-unsafe fn HardFault(_frame: &ExceptionFrame) -> ! {
-    SCB::sys_reset() // <- you could do something other than reset
+// use panic_halt as _;
+// use panic_probe as _;
+
+// #[exception]
+// unsafe fn HardFault(_frame: &ExceptionFrame) -> ! {
+//     error!("Yeah I died");
+//     SCB::sys_reset() // <- you could do something other than reset
+// }
+
+use core::panic::PanicInfo;
+use core::sync::atomic::{self, Ordering};
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {
+        atomic::compiler_fence(Ordering::SeqCst);
+    }
 }
 
 #[derive(Debug)]
-struct SpiritSpiHal<SPI> {
+struct SpiritSpiHal<SPI, CONFIG> {
     base_frequency: u32,
     band_select: BandSelect,
-    xtal_frequency: u32,
+    // xtal_frequency: u32,
     spi: SPI,
+    config: CONFIG,
 }
 
 // TODO: Move this back into `spirit1-rs` with the embedded-hal
-impl<SPI> Spirit1HalBlocking for SpiritSpiHal<SPI>
+impl<SPI, CONFIG> Spirit1HalBlocking for SpiritSpiHal<SPI, CONFIG>
 where
     SPI: SpiDevice,
+    CONFIG: SpiritHardwareConst,
 {
     fn delay_ms(&self, ms: u32) {
-        trace!("delay {}", ms);
         embassy_time::block_for(Duration::from_millis(ms as u64));
     }
 
@@ -57,10 +69,12 @@ where
     }
 
     fn get_xtal_frequency(&self) -> u32 {
-        self.xtal_frequency
+        // Self::XTAL_FREQUENCY
+        // self.xtal_frequency
+        50_000_000
     }
 
-    fn read_register<R>(&mut self) -> R
+    fn read_register<R>(&mut self) -> RadioResult<R>
     where
         R: Register<WORD> + ReadableRegister<WORD> + defmt::Format,
         [(); R::LENGTH]: Sized,
@@ -68,19 +82,34 @@ where
         // TODO: Should return result not unwrap
         let mut buf = [0; R::LENGTH];
         let mut status = [0; 2];
-        self.spi
+        let r = self
+            .spi
             .transaction(&mut [
                 Operation::Transfer(&mut status, &[spirit1_rs::READ, R::ADDRESS]),
                 Operation::Read(&mut buf),
             ])
-            .map_err(|_| RadioError::Spi)
-            .unwrap();
+            .map_err(|_| RadioError::Spi);
 
-        let state = McState::from_bytes(&status).unwrap();
-        let ret = R::from_bytes(&buf).unwrap();
-        // trace!("read_register[{:x}; {}] {:x}", R::ADDRESS, R::LENGTH, buf);
-        trace!("READ@0x{:x}: {}", R::ADDRESS, ret);
-        trace!("State = {}", state.state);
+        if let Err(_) = r {
+            error!("spi_error");
+        }
+
+        let ret = if let Ok(ret) = R::from_bytes(&buf) {
+            Ok(ret)
+        } else {
+            error!("Failed to decode");
+            Err(RadioError::ParameterError)
+        };
+
+        match McState::from_bytes(&status) {
+            Ok(state) => {
+                trace!("READ@0x{:x}: {}", R::ADDRESS, ret);
+                trace!("State = {}", state.state);
+            }
+            Err(_) => {
+                error!("Failed to decode McState: {}", status);
+            }
+        }
 
         ret
     }
@@ -101,13 +130,21 @@ where
             ])
             .map_err(|_| RadioError::Spi);
 
-        let state = McState::from_bytes(&status).unwrap();
-        trace!("State = {}", state.state);
+        match McState::from_bytes(&status) {
+            Ok(state) => {
+                trace!("State = {}", state.state);
+            }
+            Err(_) => {
+                error!("Failed to decode McState");
+            }
+        }
+
+        self.delay_ms(1);
 
         ret
     }
 
-    fn write_raw(&mut self, base: u8, value: &mut [u8]) -> RadioResult<()> {
+    fn write_raw(&mut self, base: u8, value: &[u8]) -> RadioResult<()> {
         trace!("WRITE_RAW@0x{:x}: {}", base, value);
         let mut status = [0; 2];
 
@@ -119,27 +156,100 @@ where
             ])
             .map_err(|_| RadioError::Spi);
 
-        let state = McState::from_bytes(&status).unwrap();
-        trace!("State = {}", state.state);
+        match McState::from_bytes(&status) {
+            Ok(state) => {
+                trace!("State = {}", state.state);
+            }
+            Err(_) => {
+                error!("Failed to decode McState");
+            }
+        }
+
+        ret
+    }
+
+    fn read_raw(&mut self, address: u8, length: usize, buffer: &mut [u8]) -> RadioResult<()> {
+        trace!("READ_RAW@0x{:x}: len={}", address, length);
+        let mut status = [0; 2];
+
+        let ret = self
+            .spi
+            .transaction(&mut [
+                Operation::Transfer(&mut status, &[spirit1_rs::WRITE, address]),
+                Operation::Read(&mut buffer[..length]),
+            ])
+            .map_err(|_| RadioError::Spi);
+        trace!("Buffer = {}", buffer[..length]);
+
+        match McState::from_bytes(&status) {
+            Ok(state) => {
+                trace!("State = {}", state.state);
+            }
+            Err(_) => {
+                error!("Failed to decode McState");
+            }
+        }
+
+        ret
+    }
+
+    fn write_command(&mut self, command: SpiritCommand) -> RadioResult<McState> {
+        trace!("WRITE_CMD: {}", command);
+        let mut status = [0; 2];
+
+        let ret = if let Err(e) = self
+            .spi
+            .transaction(&mut [Operation::Transfer(
+                &mut status,
+                &[spirit1_rs::COMMAND, command.try_into()?],
+            )])
+            .map_err(|_| RadioError::Spi)
+        {
+            Err(e)
+        } else {
+            let a = McState::from_bytes(&status);
+            match a {
+                Ok(state) => {
+                    trace!("State = {}", state.state);
+                    Ok(state)
+                }
+                Err(_) => {
+                    error!("Failed to decode McState");
+                    Err(RadioError::ParameterError)
+                }
+            }
+        };
+
+        self.delay_ms(100);
 
         ret
     }
 }
 
-impl<SPI> SpiritSpiHal<SPI>
+impl<SPI, CONFIG> SpiritSpiHal<SPI, CONFIG>
 where
     SPI: SpiDevice,
+    CONFIG: SpiritHardwareConst,
 {
-    fn new(spi: SPI, base_frequency: u32, xtal_frequency: u32) -> Option<Self> {
+    fn new(spi: SPI, base_frequency: u32, config: CONFIG) -> Option<Self> {
         let band_select = BandSelect::from_hz(base_frequency)?;
 
         Some(Self {
             base_frequency,
             band_select,
-            xtal_frequency,
+            config,
             spi,
         })
     }
+}
+
+trait SpiritHardwareConst {
+    const XTAL_FREQUENCY: u32;
+}
+
+struct HardwareOpts();
+impl SpiritHardwareConst for HardwareOpts {
+    const XTAL_FREQUENCY: u32 = 50_000_000;
 }
 
 #[embassy_executor::main]
@@ -150,7 +260,10 @@ async fn main(_spawner: Spawner) {
         freq: Hertz::mhz(8),
         mode: HseMode::Oscillator,
     });
+    config.enable_debug_during_sleep = true;
     let p = embassy_stm32::init(config);
+
+    // let mut buffer = [0u8; 96];
 
     // Configure GPIO
     let mut relay = Output::new(p.PA3, Level::Low, Speed::Low);
@@ -178,30 +291,71 @@ async fn main(_spawner: Spawner) {
     let spirit_spi = SpiDeviceBlocking::new(spi_bus, spi_cs);
 
     // Configure radio
-    let mut radio = SpiritSpiHal::new(spirit_spi, 433_400_000, 50_000_000).unwrap();
+    let mut radio = SpiritSpiHal::new(spirit_spi, 433_400_000, HardwareOpts()).unwrap();
 
     // Perform a test read
-    let info = radio.read_register::<DeviceInfo>();
+    let _ = radio.write_command(SpiritCommand::S_RES);
+    radio.delay_ms(50);
+    let info = radio.read_register::<DeviceInfo>().unwrap(); // ahahaha
     info!("{:x}", info);
-    crate::assert_eq!(info.version, 0x30, "silicon version mismatch");
+    assert_eq!(info.version, 0x30, "silicon version mismatch");
 
     // Initialize radio
     info!("Initializing radio...");
     if let Err(err) = configure_radio(&mut radio) {
         error!("Failed to initialize Spirit1: {}", err);
-        loop {} // really we should panic
+        // panic!()
+        loop {}
+    }
+    info!("Radio initialized!");
+
+    // // Debug
+    // info!("Looping...");
+    // loop {
+    //     relay.toggle();
+    //     Timer::after_secs(3).await;
+    // }
+
+    // Transmitter
+    let mut counter: u8 = 0;
+    loop {
+        info!("Transmitting: 0xDE 0xAD 0x{:x}", counter);
+        match radio.tx_blocking(&[0xDE, 0xAD, counter]) {
+            Ok(e) => {
+                debug!("Transmitted {} bytes", e)
+            }
+            Err(e) => {
+                error!("TX Error: {}", e)
+            }
+        }
+
+        counter = counter.wrapping_add(1);
+
+        relay.toggle();
+        // Timer::after_secs(3).await;
+        radio.delay_ms(3000);
     }
 
-    // dummy stuff
-    info!("looping...");
-    loop {
-        relay.toggle();
-        Timer::after_secs(3).await;
-    }
+    // // Receiver
+    // loop {
+    //     info!("Receiving...");
+    //     match radio.rx_blocking(&mut buffer) {
+    //         Ok(e) => {
+    //             debug!("Received {} bytes", e);
+    //             info!("Data: {:x}", buffer[..e]);
+    //             relay.toggle();
+    //         }
+    //         Err(e) => {
+    //             error!("RX Error: {}", e)
+    //         }
+    //     }
+
+    //     Timer::after_secs(1).await;
+    // }
 }
 
 /// Copy of the implementation @ [https://forum.digikey.com/t/getting-started-with-the-spirit1-transceiver/15624]
-fn configure_radio(radio: &mut impl Spirit1) -> RadioResult<()> {
+fn configure_radio(radio: &mut impl Spirit1HalBlocking) -> RadioResult<()> {
     // Restart the radio (can't do on this device)
     radio.management_wa_extra_current()?;
     radio.wait_for_ready()?;
@@ -215,7 +369,7 @@ fn configure_radio(radio: &mut impl Spirit1) -> RadioResult<()> {
     // Set the transmitter power level
     let pa_level_1 =
         PaPower1::from_dbm(0.0, radio.get_base_frequency()).expect("Invalid output power");
-    let mut pa_config: PaPower = radio.read_register();
+    let mut pa_config: PaPower = radio.read_register()?;
     pa_config.level_max_index = PaSlot::Slot1;
     radio.write_register(pa_level_1)?;
     radio.write_register(pa_config)?;
@@ -262,7 +416,7 @@ fn configure_radio(radio: &mut impl Spirit1) -> RadioResult<()> {
     // Receiver Quality Indicator Configuration
     // Enable the SQI threshold to 0 to require a perfect match between
     // the expected synchronization byte and the received synchronization byte
-    let mut qi: QI = radio.read_register();
+    let mut qi: QI = radio.read_register()?;
     qi.sqi_th = 0;
     qi.sqi_en = true;
     radio.write_register(qi)?;
@@ -270,9 +424,11 @@ fn configure_radio(radio: &mut impl Spirit1) -> RadioResult<()> {
     radio.set_rssi_threshold(-120)?;
 
     // Timer Configuration ❔
-    radio.set_rx_timeout(2000.0)?;
+    const RX_TIMEOUT: (u8, u8) =
+        spirit1_rs::calculate_rx_timeout(2000, HardwareOpts::XTAL_FREQUENCY);
+    radio.set_rx_timeout(RX_TIMEOUT.0, RX_TIMEOUT.1)?;
     radio.set_rx_timeout_stop_condition(RxTimeoutStopCondition::SqiAboveThreshold)?;
 
-    // Ok(radio)
+    trace!("Radio ready");
     Ok(())
 }

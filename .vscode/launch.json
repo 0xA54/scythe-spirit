@@ -22,6 +22,7 @@
                 {
                     "coreIndex": 0,
                     "programBinary": "./target/thumbv6m-none-eabi/debug/spirit1-embedded-example",
+                    "rttEnabled": true
                 }
             ],
             "env": {
